@@ -20,3 +20,6 @@ def feature_a():
 
 def feature_b():
     return 'B'
+
+
+greet = saluer
