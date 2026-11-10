@@ -2,15 +2,16 @@
 
 
 def greet(name):
-    return f"Bonjour {name}"
+    return f"Bonjour {name or 'inconnu'}"
 
 
 def total(prices):
-    return sum(prices)
+    return sum(prices or [])
 
 
 def discount(price, rate):
-    return price * (1 - rate)
+    rate = max(rate, 0)
+    return round(price * (1 - rate), 2)
 
 
 def feature_a():
