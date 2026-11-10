@@ -1,4 +1,4 @@
 [project]
 name = "demo-app"
-version = "0.0.0-dev+gd9fc702"
+version = "0.0.0-dev+gcf91e97"
 dependencies = ["lib-b==2.0.0"]
