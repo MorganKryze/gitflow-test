@@ -591,8 +591,15 @@ def cmd_guard(target, source, title, labels):
         if "exception" in labels and not source.startswith("backport/"):
             if not any("Justification:" in git("log", "-1", "--format=%B", c) for c in commits):
                 problems.append("exception : un commit doit contenir une ligne `Justification:`")
-    if target == "main" and not source.startswith("livraison/"):
-        problems.append("vers main : seulement une branche livraison/* préparée par le bot")
+    if target == "main":
+        m = re.fullmatch(r"livraison/(\d+\.\d+\.\d+)", source)
+        if not m:
+            problems.append("vers main : seulement une branche livraison/X.Y.Z préparée par le bot")
+        else:
+            fetch()
+            rcs = [t for t in tags() if t.startswith(m.group(1) + "-rc.")]
+            if not any(run("diff", "--quiet", t, "HEAD", check=False).returncode == 0 for t in rcs):
+                problems.append(f"vers main : le contenu n'est identique à aucune RC taguée de {m.group(1)}")
     if target != "main":
         base = git("merge-base", f"origin/{target}", "HEAD")
         before, after = read_versions(base), read_versions("HEAD")

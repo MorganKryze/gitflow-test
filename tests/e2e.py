@@ -63,11 +63,15 @@ class GitHub:
         self.api("POST", f"/issues/{n}/labels", {"labels": list(labels)})
         time.sleep(12)  # laisse l'événement `labeled` relancer les checks
 
-    def checks(self, n, timeout=600):
-        """Attend que test et guard soient terminés sur la tête de la PR ; renvoie {nom: conclusion}."""
+    def checks(self, n, timeout=600, sha=None):
+        """Attend que test et guard soient terminés sur la tête de la PR ; renvoie {nom: conclusion}.
+        sha : tête attendue (après un push, GitHub met quelques secondes à mettre la PR à jour)."""
         t0 = time.time()
         while time.time() - t0 < timeout:
             _, pr = self.api("GET", f"/pulls/{n}")
+            if sha and pr["head"]["sha"] != sha:
+                time.sleep(4)
+                continue
             _, cr = self.api("GET", f"/commits/{pr['head']['sha']}/check-runs?per_page=100")
             runs = [c for c in cr["check_runs"] if c["name"] in ("test", "guard")]
             if runs and all(c["status"] == "completed" for c in runs) and {c["name"] for c in runs} == {"test", "guard"}:
@@ -172,11 +176,11 @@ class GitLab:
         _, p = self.api("POST", f"/merge_requests/{iid}/pipelines")
         self.expect_pipeline[iid] = p["id"]
 
-    def checks(self, iid, timeout=900):
+    def checks(self, iid, timeout=900, sha=None):
         t0 = time.time()
         while time.time() - t0 < timeout:
             _, ps = self.api("GET", f"/merge_requests/{iid}/pipelines")
-            ps = [p for p in ps if p["id"] >= self.expect_pipeline.get(iid, 0)]
+            ps = [p for p in ps if p["id"] >= self.expect_pipeline.get(iid, 0) and (not sha or p["sha"] == sha)]
             if ps and ps[0]["status"] in ("success", "failed", "canceled", "skipped"):
                 _, jobs = self.api("GET", f"/pipelines/{ps[0]['id']}/jobs")
                 return {j["name"]: j["status"] for j in jobs}
@@ -445,8 +449,7 @@ def story(r, only=None, start=1):
         r.git("push", "-q", "-f", "origin", "fix-3.3/legacy")
         if r.p.name == "gitlab":
             r.p.expect_pipeline.pop(mr, None)
-            time.sleep(15)
-        res = p.checks(mr)
+        res = p.checks(mr, sha=r.git("rev-parse", "HEAD"))
         ok, _ = p.merge(mr)
         r.note("S08", f"avec justification : CI {res}, merge", ok)
         r.idle()
