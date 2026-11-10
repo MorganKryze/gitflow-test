@@ -174,8 +174,15 @@ def line_key(line):
     return tuple(int(x) for x in line.split("."))
 
 
+def trusted(tag, branch):
+    """Filet : un tag ne compte que s'il pointe sur un vrai bump du bot présent sur `branch`.
+    Un tag posé à la main (6.6.6) ne doit pas empoisonner le calcul des versions."""
+    return (is_bump(tag) and is_ancestor(tag, f"origin/{branch}")
+            and extract("package.json", show(tag, "package.json")) == tag)
+
+
 def finals():
-    return sorted(p[:3] for p in map(parse, tags()) if p and p[3] is None)
+    return sorted(p[:3] for t in tags() if (p := parse(t)) and p[3] is None and trusted(t, "main"))
 
 
 def next_rc(line):
@@ -183,7 +190,8 @@ def next_rc(line):
     x, y = line_key(line)
     done = [f[2] for f in finals() if f[:2] == (x, y)]
     z = max(done) + 1 if done else 0
-    rcs = [p[3] for p in map(parse, tags()) if p and p[:3] == (x, y, z) and p[3] is not None]
+    rcs = [p[3] for t in tags() if (p := parse(t)) and p[:3] == (x, y, z) and p[3] is not None
+           and trusted(t, f"release/{line}")]
     return f"{x}.{y}.{z}-rc.{max(rcs) + 1 if rcs else 1}"
 
 

@@ -19,9 +19,20 @@ default:
 
 .bot:
   before_script:
-    - apk add --no-cache -q python3 git
+    - apk add --no-cache -q python3 git openssh-client
     - test -n "$BOT_TOKEN" || { echo "BOT_TOKEN manquant"; exit 1; }
-    - git remote set-url origin "https://oauth2:${BOT_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+    - |
+      if [ -n "$BOT_SSH_KEY_B64" ]; then
+        # Push par deploy key : seule autorisée sur les branches et tags protégés
+        # (« Allowed to push: No one » + la clé). Les humains, même Maintainers, ne poussent plus.
+        # SSH_KNOWN_HOSTS : variable protégée = `ssh-keyscan $CI_SERVER_HOST`, vérifiée hors bande
+        test -n "$SSH_KNOWN_HOSTS" || { echo "SSH_KNOWN_HOSTS manquant (clé d'hôte épinglée)"; exit 1; }
+        (umask 077; echo "$BOT_SSH_KEY_B64" | base64 -d > /tmp/bot_key; echo "$SSH_KNOWN_HOSTS" > /tmp/known_hosts)
+        export GIT_SSH_COMMAND="ssh -i /tmp/bot_key -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=/tmp/known_hosts"
+        git remote set-url origin "git@${CI_SERVER_HOST}:${CI_PROJECT_PATH}.git"
+      else
+        git remote set-url origin "https://oauth2:${BOT_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+      fi
 
 # Rejoué après merge (push non-bot) : en Free, pas de merged results pipelines.
 test:

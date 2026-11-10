@@ -135,6 +135,23 @@ class GitHub:
         _, d = self.api("GET", f"/deployments?environment={urllib.parse.quote(self.env_name(branch))}&per_page=1")
         return d[0]["sha"] if d else None
 
+    KEY = os.path.join(WORK, "bot-gh-key")
+
+    def revoke_bot(self):
+        _, keys = self.api("GET", "/keys")
+        for k in keys:
+            if k["title"] == "release-bot":
+                self.api("DELETE", f"/keys/{k['id']}")
+
+    def restore_bot(self):
+        sh("gh", "repo", "deploy-key", "add", self.KEY + ".pub", "--repo", self.repo, "--allow-write", "--title", "release-bot")
+
+    def retry_failed(self):
+        _, d = self.api("GET", "/actions/runs?status=failure&per_page=1")
+        run = d["workflow_runs"][0]
+        sh("gh", "run", "rerun", str(run["id"]), "--repo", self.repo, "--failed")
+        return run["id"]
+
 
 # ---------------------------------------------------------------- GitLab
 
@@ -235,6 +252,31 @@ class GitLab:
     def comments(self, iid):
         _, ns = self.api("GET", f"/merge_requests/{iid}/notes?per_page=100")
         return [n["body"] for n in ns if not n["system"]]
+
+    def revoke_bot(self):
+        self.api("PUT", "/variables/BOT_TOKEN", {"value": "jeton-revoque-1234567890", "protected": True, "masked": True})
+
+    def restore_bot(self):
+        self.api("PUT", "/variables/BOT_TOKEN", {"value": self.token, "protected": True, "masked": True, "raw": True})
+
+    def retry_failed(self):
+        """Relance TOUS les jobs en échec du dernier pipeline en échec (bump et backport peuvent l'être)."""
+        _, jobs = self.api("GET", "/jobs?scope[]=failed&per_page=1")
+        pid = jobs[0]["pipeline"]["id"]
+        _, jobs = self.api("GET", f"/pipelines/{pid}/jobs?scope[]=failed")
+        for j in jobs:
+            self.api("POST", f"/jobs/{j['id']}/retry")
+        return [j["name"] for j in jobs]
+
+    def play_schedule(self):
+        _, sch = self.api("GET", "/pipeline_schedules")
+        self.api("POST", f"/pipeline_schedules/{sch[0]['id']}/play")
+        for _ in range(60):
+            time.sleep(8)
+            _, ps = self.api("GET", "/pipelines?source=schedule&per_page=1")
+            if ps and ps[0]["status"] in ("success", "failed", "canceled"):
+                return ps[0]["status"]
+        return "timeout"
 
     def env_sha(self, branch):
         _, envs = self.api("GET", f"/environments?name={urllib.parse.quote(self.env_name(branch))}")
@@ -567,6 +609,55 @@ def story(r, only=None, start=1):
         r.flow("S25", "fix/gel", "dev", {"src/gel.py": "GEL = 1\n"}, "fix: après gel", ["backport-3.3"])
         mr = r.mrs["S25"]
         r.note("S25", "backport refusé avec commentaire « gelée »", any("gelée" in c for c in p.comments(mr)), p.comments(mr))
+
+    if step(16):  # S15 bis + S16 bis : audit bloquant et retour en arrière, sur des fix sans conflit
+        r.flow("S15b", "fix/audit", "dev", {"src/audit.py": "AUDIT = True\n"}, "fix: contrôle d'audit", ["backport-3.4"])
+        r.merge_bot("S15b", "release/3.4", "contrôle d'audit")
+        r.expect_version("S15b", "release/3.4", "3.4.1-rc.2")
+        ok, log = p.dispatch("cut", "3.5")  # coupée APRÈS le fix : elle le contient
+        r.note("S15b", "coupe 3.5", ok, log[-600:])
+        r.idle()
+        r.deliver("S15b", "3.5.0-rc.1")
+        ok, log = p.dispatch("livraison", "3.4.1-rc.2")
+        r.note("S16b", "livraison 3.4.1 après 3.5.0 refusée (retour en arrière)", not ok and "pas plus récente que la PROD" in log, log[-500:])
+        ok, log = p.dispatch("freeze", "3.4")
+        r.note("S15b", "gel de 3.4 (sinon 2 lignes actives)", ok, log[-300:])
+        r.idle()
+        ok, log = p.dispatch("cut", "3.6")
+        r.note("S15b", "coupe 3.6", ok, log[-400:])
+        r.idle()
+        # fix mergé APRÈS la coupe de 3.6, backporté seulement en 3.5 : l'audit de 3.6 doit bloquer
+        r.flow("S15b", "fix/audit-2", "dev", {"src/audit2.py": "AUDIT2 = True\n"}, "fix: second contrôle", ["backport-3.5"])
+        r.merge_bot("S15b", "release/3.5", "second contrôle")
+        r.expect_version("S15b", "release/3.5", "3.5.1-rc.1")
+        r.deliver("S15b", "3.6.0-rc.1", expect=False, contains="second contrôle")
+
+    if step(17):  # S24 bot privé de ses droits en plein flux
+        p.revoke_bot()
+        ts = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        r.flow("S24", "feature/sans-bot", "dev", {"src/sans_bot.py": "X = 1\n"}, "feat: pendant la panne du bot")
+        fails = p.failed_since(ts)
+        r.git("fetch", "-q", "origin")
+        r.note("S24", "bot révoqué : échec visible, aucun bump poussé",
+               bool(fails) and r.git("log", "-1", "--format=%ae", "origin/dev") != BOT, fails)
+        p.restore_bot()
+        time.sleep(5)
+        p.retry_failed()
+        r.idle()
+        r.git("fetch", "-q", "origin")
+        r.note("S24", "après restauration et relance : bump poussé", r.git("log", "-1", "--format=%ae", "origin/dev") == BOT)
+
+    if step(18) and p.name == "gitlab":  # P6 scan planifié, P8 labels scoped
+        r.note("P6", "pipeline planifié (scan) exécuté avec succès", p.play_schedule() == "success")
+        for l in ("portee::a", "portee::b"):
+            p.api("POST", "/labels", {"name": l, "color": "#999999"}, ok=False)
+        r.branch("chore/labels", "dev", {"src/labels.py": "L = 1\n"}, "chore: labels")
+        mr = p.open_mr("chore/labels", "dev", "chore: labels", ["portee::a"])
+        p.api("PUT", f"/merge_requests/{mr}", {"add_labels": "portee::b"})
+        _, m = p.api("GET", f"/merge_requests/{mr}")
+        r.note("P8", f"labels scoped en Free : {'exclusifs' if len(set(m['labels']) & {'portee::a', 'portee::b'}) == 1 else 'NON exclusifs'}",
+               True, m["labels"])
+        p.close(mr)
 
     r.note("FIN", f"pipelines en échec depuis le début (attendus : refus volontaires) : {p.failed_since(T0)}", True)
 
