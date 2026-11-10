@@ -2,7 +2,7 @@
 
 
 def greet(name):
-    return f"Bonjour {name}"
+    return f"Bonjour {name or 'inconnu'}"
 
 
 def total(prices):
