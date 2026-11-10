@@ -575,6 +575,9 @@ def cmd_livraison(rc_tag):
 
 def cmd_freeze(line):
     fetch()
+    if frozen(line):
+        log(f"ligne {line} déjà gelée : rien à faire")
+        return
     git("tag", f"frozen/{line}", f"origin/release/{line}")
     git("push", "-q", "origin", f"refs/tags/frozen/{line}")
     log(f"ligne {line} gelée (penser à passer release/{line} en « No one » et arrêter EID {line})")

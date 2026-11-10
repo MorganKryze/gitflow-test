@@ -210,6 +210,7 @@ def S02(sb):
     sb.bot("cut", "3.4")
     assert "lignes actives" in sb.bot("cut", "3.5", ok=False)
     sb.bot("freeze", "3.3")
+    assert "déjà gelée" in sb.bot("freeze", "3.3")  # idempotent
     sb.bot("cut", "3.5")
     assert "plus récente" in sb.bot("cut", "3.1", ok=False)
     assert "X.Y" in sb.bot("cut", "3.6.0", ok=False)
