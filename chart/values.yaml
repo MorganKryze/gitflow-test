@@ -1,7 +1,7 @@
 replicaCount: 1
 image:
   repository: registry.local/demo-app
-  tag: "cf91e97"
+  tag: "6d98131"
   pullPolicy: IfNotPresent
 sidecar:
   image: registry.local/proxy
