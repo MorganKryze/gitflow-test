@@ -3,6 +3,6 @@
   "version": "0.0.0-dev+g12e46f2",
   "private": true,
   "dependencies": {
-    "lib-a": "1.0.0"
+    "lib-a": "1.1.0"
   }
 }
