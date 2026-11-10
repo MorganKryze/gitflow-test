@@ -1,6 +1,8 @@
 # Bump, backport, déploiement factice, coupe, livraison, gel, scan quotidien.
 # Le bot pousse avec une deploy key (secret BOT_SSH_KEY), autorisée à contourner
 # les rulesets : ses pushs déclenchent les workflows, contrairement à GITHUB_TOKEN.
+# La clé vit dans l'environnement `bot`, limité aux branches dev, main et release/* :
+# un workflow modifié sur une autre branche ne peut pas la lire.
 name: release
 on:
   push:
@@ -36,6 +38,7 @@ jobs:
     needs: test
     if: github.event_name == 'push' && github.event.head_commit.author.email != 'release-bot@example.invalid'
     runs-on: ubuntu-latest
+    environment: bot
     concurrency: { group: "bump-${{ github.ref_name }}", cancel-in-progress: false }
     steps:
       - uses: actions/checkout@v4
@@ -46,6 +49,7 @@ jobs:
   backport:
     if: github.event_name == 'push' && github.ref_name == 'dev' && github.event.head_commit.author.email != 'release-bot@example.invalid'
     runs-on: ubuntu-latest
+    environment: bot
     concurrency: { group: backport, cancel-in-progress: false }
     steps:
       - uses: actions/checkout@v4
@@ -63,7 +67,9 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: deploy, path: deploy.json }
   manual:
-    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    # actions manuelles depuis dev uniquement ; le cron tourne sur la branche par défaut
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev') || github.event_name == 'schedule'
+    environment: bot
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
