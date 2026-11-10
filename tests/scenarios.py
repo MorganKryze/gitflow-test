@@ -567,8 +567,39 @@ def W03(sb):
     assert sb.git("rev-parse", "origin/dev") == before
 
 
+def W04(sb):
+    """Usurpation : commit signé au nom du bot dans une MR de backport → refusé par les garde-fous."""
+    prod_330(sb)
+    sb.git("fetch", "-q", "origin")
+    sb.git("checkout", "-q", "-B", "backport/77-vers-3.3", "origin/release/3.3")
+    open(os.path.join(sb.dev, "src/app.py"), "a").write("\n\ndef cache():\n    return 1\n")
+    sb.git("add", "-A")
+    subprocess.run(["git", "commit", "-qm", "chore: bump 3.3.1-rc.1"], cwd=sb.dev, check=True,
+                   env={**os.environ, **HUMAN, "GIT_AUTHOR_NAME": "release-bot",
+                        "GIT_AUTHOR_EMAIL": "release-bot@example.invalid"})
+    sb.git("push", "-q", "-f", "origin", "backport/77-vers-3.3")
+    try:
+        sb.merge("backport/77-vers-3.3", "release/3.3", "[3.3] chore: bump")
+        raise AssertionError("aurait dû être refusée")
+    except Refused as e:
+        assert "au nom du bot" in str(e), e
+
+
+def W05(sb):
+    """Trailer de cherry-pick inventé, poussé en direct sur la release → livraison bloquée."""
+    prod_330(sb)
+    sb.git("fetch", "-q", "origin")
+    sb.git("checkout", "-q", "-B", "release/3.3", "origin/release/3.3")
+    open(os.path.join(sb.dev, "src/app.py"), "a").write("\n\ndef porte():\n    return 1\n")
+    sb.git("commit", "-qam", "fix: discret\n\n(cherry picked from commit " + "d" * 40 + ")")
+    sb.git("push", "-q", "origin", "release/3.3")
+    sb.push_ci("release/3.3", sb.git("rev-parse", "HEAD"))
+    out = sb.bot("livraison", "3.3.1-rc.1", ok=False)
+    assert "absent de dev" in out, out
+
+
 SCENARIOS = [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S14, S15, S16, S17, S18, S19,
-             S22, S23, S24, S25, S26, W01, W02, W03]
+             S22, S23, S24, S25, S26, W01, W02, W03, W04, W05]
 
 
 def main():

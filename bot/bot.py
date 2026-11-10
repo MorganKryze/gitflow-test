@@ -65,6 +65,15 @@ def author_email(ref="HEAD"):
     return git("log", "-1", "--format=%ae", ref)
 
 
+def is_bump(c):
+    """Commit de bump authentique : auteur bot ET ne touche que les fichiers de version.
+    L'adresse d'auteur seule se falsifie ; le contenu, lui, est vérifiable."""
+    if author_email(c) != BOT_EMAIL:
+        return False
+    files = set(git("diff-tree", "--no-commit-id", "--name-only", "-r", c).split())
+    return files <= set(VERSION_FILES)
+
+
 def remote_branches(pattern):
     out = git("ls-remote", "--heads", "origin", pattern)
     return [l.split("refs/heads/", 1)[1] for l in out.splitlines()]
@@ -339,7 +348,7 @@ def cmd_bump(branch, force=False):
     for attempt in range(3):
         fetch(branch)
         git("checkout", "-q", "-B", branch, f"origin/{branch}")
-        if author_email() == BOT_EMAIL and not force:
+        if is_bump("HEAD") and not force:
             log(f"{branch} : la pointe est déjà un commit du bot, rien à faire")
             return
         if branch == "dev":
@@ -363,8 +372,8 @@ def cmd_bump(branch, force=False):
 
 
 def cmd_deploy(branch):
-    if author_email() != BOT_EMAIL:
-        log("HEAD n'est pas un commit du bot : pas de déploiement")
+    if not is_bump("HEAD"):
+        log("HEAD n'est pas un bump du bot : pas de déploiement")
         return
     env = {"dev": "DEV", "main": "PROD"}.get(branch) or f"EID {branch.split('/', 1)[1]}"
     v = read_versions()
@@ -495,7 +504,7 @@ def audit(line, rc_tag):
             continue
         base = git("merge-base", f"origin/release/{old}", "origin/dev")
         for c in git("rev-list", "--no-merges", f"{base}..origin/release/{old}").split():
-            if author_email(c) == BOT_EMAIL:
+            if is_bump(c):
                 continue
             msg = git("log", "-1", "--format=%B", c)
             m = PICKED.search(msg)
@@ -517,10 +526,13 @@ def purity(line, p, rc_tag):
     base = prev if prev in tags() else git("merge-base", f"origin/release/{line}", "origin/dev")
     bad = []
     for c in git("rev-list", "--no-merges", f"{base}..{rc_tag}").split():
-        if author_email(c) == BOT_EMAIL:
+        if is_bump(c):
             continue
         msg = git("log", "-1", "--format=%B", c)
-        if not (PICKED.search(msg) or "Justification:" in msg):
+        m = PICKED.search(msg)
+        if m and not is_ancestor(m.group(1), "origin/dev"):
+            bad.append(f"{c[:9]} référence un commit absent de dev ({m.group(1)[:9]}) : {msg.splitlines()[0]}")
+        elif not (m or "Justification:" in msg):
             bad.append(f"{c[:9]} {msg.splitlines()[0]}")
     if bad:
         die(f"pureté de release/{line} : commits ni backportés ni justifiés dans {rc_tag} :\n  " + "\n  ".join(bad))
@@ -564,6 +576,10 @@ def cmd_guard(target, source, title, labels):
     fetch(target)
     rng, problems = f"origin/{target}..HEAD", []
     commits = git("rev-list", rng).split()
+    spoofed = [c[:9] for c in git("rev-list", "--no-merges", rng).split()
+               if author_email(c) == BOT_EMAIL and target != "main"]
+    if spoofed:
+        problems.append(f"commit(s) signé(s) au nom du bot dans une MR : {', '.join(spoofed)}")
     if target.startswith("release/"):
         if not (source.startswith("backport/") or "exception" in labels):
             problems.append("vers une release : branche backport/* ou label `exception` obligatoire")
