@@ -1,6 +1,6 @@
 {
   "name": "demo-app",
-  "version": "0.0.0-dev+g6638341",
+  "version": "0.0.0-dev+g3ba8897",
   "private": true,
   "dependencies": {
     "lib-a": "1.1.0"
