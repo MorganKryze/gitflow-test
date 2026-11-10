@@ -598,8 +598,26 @@ def W05(sb):
     assert "absent de dev" in out, out
 
 
+def W06(sb):
+    """MR vers main depuis une fausse branche livraison/ au contenu modifié → refusée."""
+    prod_330(sb)
+    sb.mr("fix/remise", "dev", FIX_DISCOUNT, "fix: arrondit la remise", ["backport-3.3"])
+    sb.merge_bot_mr("backport/")
+    sb.bot("livraison", "3.3.1-rc.1")
+    sb.git("fetch", "-q", "origin")
+    sb.git("checkout", "-q", "-B", "livraison/3.3.1", "origin/livraison/3.3.1")
+    open(os.path.join(sb.dev, "src/app.py"), "a").write("\n\ndef ajout_tardif():\n    return 1\n")
+    sb.git("commit", "-qam", "fix: ajout tardif")
+    sb.git("push", "-q", "-f", "origin", "livraison/3.3.1")
+    try:
+        sb.merge("livraison/3.3.1", "main", "Livraison 3.3.1")
+        raise AssertionError("aurait dû être refusée")
+    except Refused as e:
+        assert "identique à aucune RC" in str(e), e
+
+
 SCENARIOS = [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S14, S15, S16, S17, S18, S19,
-             S22, S23, S24, S25, S26, W01, W02, W03, W04, W05]
+             S22, S23, S24, S25, S26, W01, W02, W03, W04, W05, W06]
 
 
 def main():

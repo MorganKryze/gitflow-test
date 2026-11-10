@@ -27,7 +27,7 @@ default:
 test:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR !~ /release-bot/
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR !~ /<release-bot@example\.invalid>$/
   script:
     - python3 tests/test_app.py
 
@@ -35,7 +35,9 @@ guard:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
   script:
-    - python3 bot/bot.py guard --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+    # bot de confiance : celui de dev (protégée), pas celui de la MR
+    - git fetch -q origin dev && git show origin/dev:bot/bot.py > /tmp/bot.py
+    - python3 /tmp/bot.py guard --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
       --source "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" --title "$CI_MERGE_REQUEST_TITLE"
       --labels "$CI_MERGE_REQUEST_LABELS"
 
@@ -44,7 +46,7 @@ bump:
   needs: [test]
   resource_group: bump-$CI_COMMIT_REF_SLUG
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR !~ /release-bot/
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR !~ /<release-bot@example\.invalid>$/
   script:
     - python3 bot/bot.py bump --branch "$CI_COMMIT_BRANCH"
 
@@ -52,17 +54,17 @@ backport:
   extends: .bot
   resource_group: backport
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev" && $CI_COMMIT_AUTHOR !~ /release-bot/
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev" && $CI_COMMIT_AUTHOR !~ /<release-bot@example\.invalid>$/
   script:
     - python3 bot/bot.py backports-for --sha "$CI_COMMIT_SHA"
 
 deploy:
   rules:
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /release-bot/ && $CI_COMMIT_BRANCH == "dev"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /<release-bot@example\.invalid>$/ && $CI_COMMIT_BRANCH == "dev"
       variables: { DEPLOY_ENV: DEV }
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /release-bot/ && $CI_COMMIT_BRANCH == "main"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /<release-bot@example\.invalid>$/ && $CI_COMMIT_BRANCH == "main"
       variables: { DEPLOY_ENV: PROD }
-    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /release-bot/
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /<release-bot@example\.invalid>$/
       variables: { DEPLOY_ENV: eid/$CI_COMMIT_REF_SLUG }
   environment:
     name: $DEPLOY_ENV
@@ -77,8 +79,8 @@ deploy:
 manual:
   extends: .bot
   rules:
-    - if: $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $ACTION
-    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $ACTION && $CI_COMMIT_REF_NAME == "dev"
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "dev"
   script:
     - |
       case "${ACTION:-scan}" in
