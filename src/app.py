@@ -1,7 +1,7 @@
 """Application factice du bac à sable gitflow."""
 
 
-def greet(name):
+def saluer(name):
     return f"Bonjour {name.strip()}"
 
 
@@ -20,3 +20,6 @@ def feature_a():
 
 def feature_b():
     return 'B'
+
+
+greet = saluer

@@ -27,4 +27,7 @@ jobs:
           SOURCE: ${{ github.head_ref || github.ref_name }}
           TITLE: ${{ github.event.pull_request.title }}
           LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
-        run: python3 bot/bot.py guard ${TARGET:+--target "$TARGET"} --source "$SOURCE" --title "$TITLE" --labels "$LABELS"
+        # bot de confiance : celui de dev (protégée), pas celui de la PR qui pourrait se désactiver lui-même
+        run: |
+          git show origin/dev:bot/bot.py > "$RUNNER_TEMP/bot.py"
+          python3 "$RUNNER_TEMP/bot.py" guard ${TARGET:+--target "$TARGET"} --source "$SOURCE" --title "$TITLE" --labels "$LABELS"
