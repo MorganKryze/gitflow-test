@@ -10,7 +10,7 @@ def total(prices):
 
 
 def discount(price, rate):
-    return price * (1 - rate)
+    return round(price * (1 - rate), 2)
 
 
 def feature_a():
