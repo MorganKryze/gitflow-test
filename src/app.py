@@ -15,3 +15,7 @@ def discount(price, rate):
 
 def feature_a():
     return 'A'
+
+
+def feature_b():
+    return 'B'
