@@ -6,7 +6,7 @@ def greet(name):
 
 
 def total(prices):
-    return sum(prices)
+    return sum(prices or [])
 
 
 def discount(price, rate):
