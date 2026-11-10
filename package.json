@@ -1,8 +1,8 @@
 {
   "name": "demo-app",
-  "version": "3.3.1",
+  "version": "3.4.0-rc.3",
   "private": true,
   "dependencies": {
-    "lib-a": "1.0.0"
+    "lib-a": "1.1.0"
   }
 }

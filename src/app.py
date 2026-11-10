@@ -2,11 +2,11 @@
 
 
 def greet(name):
-    return f"Bonjour {name or 'inconnu'}"
+    return f"Bonjour {name.strip()}"
 
 
 def total(prices):
-    return sum(prices or [])
+    return sum(p for p in prices or [])
 
 
 def discount(price, rate):
@@ -16,3 +16,7 @@ def discount(price, rate):
 
 def feature_a():
     return 'A'
+
+
+def feature_b():
+    return 'B'
