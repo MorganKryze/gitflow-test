@@ -9,3 +9,4 @@ assert not os.path.exists(os.path.join(os.path.dirname(__file__), "..", "FAIL"))
 assert app.saluer("Ada") == "Bonjour Ada"
 assert app.total([1, 2]) == 3
 print("tests OK")
+assert app.greet("Bob") == "Bonjour Bob"
