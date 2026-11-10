@@ -1,0 +1,30 @@
+# CI avant merge : tests factices + garde-fous du gitflow.
+# Les PR ouvertes par le bot (GITHUB_TOKEN) ne déclenchent pas `pull_request` :
+# on contrôle donc aussi les pushs sur backport/** (même SHA, même nom de check).
+name: ci
+on:
+  pull_request:
+    # labeled/unlabeled/edited : les garde-fous lisent labels et titre, ils doivent se relancer
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+  push:
+    branches: ["backport/**", "livraison/**"]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/test_app.py
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: garde-fous
+        env:
+          TARGET: ${{ github.base_ref }}
+          SOURCE: ${{ github.head_ref || github.ref_name }}
+          TITLE: ${{ github.event.pull_request.title }}
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+        run: python3 bot/bot.py guard ${TARGET:+--target "$TARGET"} --source "$SOURCE" --title "$TITLE" --labels "$LABELS"

@@ -1,0 +1,79 @@
+# Bump, backport, déploiement factice, coupe, livraison, gel, scan quotidien.
+# Le bot pousse avec une deploy key (secret BOT_SSH_KEY), autorisée à contourner
+# les rulesets : ses pushs déclenchent les workflows, contrairement à GITHUB_TOKEN.
+name: release
+on:
+  push:
+    branches: [dev, main, "release/[0-9]+.[0-9]+"]
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        type: choice
+        options: [cut, livraison, freeze, bump, rollback, scan]
+      value:
+        description: "cut/freeze : X.Y — livraison : X.Y.Z-rc.N — bump : release/X.Y — rollback : X.Y.Z"
+        required: false
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+env:
+  BRANCH: ${{ github.ref_name }}
+  PLATFORM: github
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  BOT_EMAIL: release-bot@example.invalid
+jobs:
+  # Tests rejoués après merge : la CI de MR a testé la branche source, pas le résultat du merge.
+  test:
+    if: github.event_name == 'push' && github.event.head_commit.author.email != 'release-bot@example.invalid'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tests/test_app.py
+  bump:
+    needs: test
+    if: github.event_name == 'push' && github.event.head_commit.author.email != 'release-bot@example.invalid'
+    runs-on: ubuntu-latest
+    concurrency: { group: "bump-${{ github.ref_name }}", cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ssh-key: "${{ secrets.BOT_SSH_KEY }}" }
+      - run: |
+          [[ "$BRANCH" =~ ^(dev|main|release/[0-9]+\.[0-9]+)$ ]] || { echo "branche refusée"; exit 1; }
+          python3 bot/bot.py bump --branch "$BRANCH"
+  backport:
+    if: github.event_name == 'push' && github.ref_name == 'dev' && github.event.head_commit.author.email != 'release-bot@example.invalid'
+    runs-on: ubuntu-latest
+    concurrency: { group: backport, cancel-in-progress: false }
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ssh-key: "${{ secrets.BOT_SSH_KEY }}" }
+      - run: python3 bot/bot.py backports-for --sha "${{ github.sha }}"
+  deploy:
+    if: github.event_name == 'push' && github.event.head_commit.author.email == 'release-bot@example.invalid'
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'PROD' || github.ref_name == 'dev' && 'DEV' || format('EID {0}', github.ref_name) }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          [[ "$BRANCH" =~ ^(dev|main|release/[0-9]+\.[0-9]+)$ ]] || { echo "branche refusée"; exit 1; }
+          python3 bot/bot.py deploy --branch "$BRANCH"
+      - uses: actions/upload-artifact@v4
+        with: { name: deploy, path: deploy.json }
+  manual:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, ssh-key: "${{ secrets.BOT_SSH_KEY }}" }
+      - env:
+          ACTION: ${{ inputs.action || 'scan' }}
+          VALUE: ${{ inputs.value }}
+        run: |
+          case "$ACTION" in
+            scan) python3 bot/bot.py scan ;;
+            bump) python3 bot/bot.py bump --branch "$VALUE" --force ;;
+            *)    python3 bot/bot.py "$ACTION" "$VALUE" ;;
+          esac

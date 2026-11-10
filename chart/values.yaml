@@ -1,0 +1,8 @@
+replicaCount: 1
+image:
+  repository: registry.local/demo-app
+  tag: "0000000"
+  pullPolicy: IfNotPresent
+sidecar:
+  image: registry.local/proxy
+  tag: "1.4.2"

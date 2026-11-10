@@ -1,0 +1,88 @@
+# Gitflow : CI avant merge, bump, backport, déploiement factice, coupe, livraison.
+# Prérequis : variable CI masquée BOT_TOKEN (scopes api + write_repository),
+# avec un rôle autorisé à pousser sur dev, main et release/*.
+variables:
+  GIT_DEPTH: "0"
+  PLATFORM: gitlab
+  BOT_EMAIL: release-bot@example.invalid
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE =~ /^(web|api|schedule)$/
+    - if: $CI_COMMIT_BRANCH =~ /^(dev|main|release\/\d+\.\d+)$/
+
+default:
+  image: alpine:3.20
+  before_script:
+    - apk add --no-cache -q python3 git
+
+.bot:
+  before_script:
+    - apk add --no-cache -q python3 git
+    - test -n "$BOT_TOKEN" || { echo "BOT_TOKEN manquant"; exit 1; }
+    - git remote set-url origin "https://oauth2:${BOT_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+
+# Rejoué après merge (push non-bot) : en Free, pas de merged results pipelines.
+test:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR !~ /release-bot/
+  script:
+    - python3 tests/test_app.py
+
+guard:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  script:
+    - python3 bot/bot.py guard --target "$CI_MERGE_REQUEST_TARGET_BRANCH_NAME"
+      --source "$CI_MERGE_REQUEST_SOURCE_BRANCH_NAME" --title "$CI_MERGE_REQUEST_TITLE"
+      --labels "$CI_MERGE_REQUEST_LABELS"
+
+bump:
+  extends: .bot
+  needs: [test]
+  resource_group: bump-$CI_COMMIT_REF_SLUG
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR !~ /release-bot/
+  script:
+    - python3 bot/bot.py bump --branch "$CI_COMMIT_BRANCH"
+
+backport:
+  extends: .bot
+  resource_group: backport
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == "dev" && $CI_COMMIT_AUTHOR !~ /release-bot/
+  script:
+    - python3 bot/bot.py backports-for --sha "$CI_COMMIT_SHA"
+
+deploy:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /release-bot/ && $CI_COMMIT_BRANCH == "dev"
+      variables: { DEPLOY_ENV: DEV }
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /release-bot/ && $CI_COMMIT_BRANCH == "main"
+      variables: { DEPLOY_ENV: PROD }
+    - if: $CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_AUTHOR =~ /release-bot/
+      variables: { DEPLOY_ENV: eid/$CI_COMMIT_REF_SLUG }
+  environment:
+    name: $DEPLOY_ENV
+  script:
+    - git checkout -q -B "$CI_COMMIT_BRANCH" "$CI_COMMIT_SHA"
+    - python3 bot/bot.py deploy --branch "$CI_COMMIT_BRANCH"
+  artifacts:
+    paths: [deploy.json]
+
+# Pipelines lancés à la main (Build > Pipelines > Run pipeline) avec ACTION et VALUE,
+# ou planifiés (scan quotidien).
+manual:
+  extends: .bot
+  rules:
+    - if: $CI_PIPELINE_SOURCE =~ /^(web|api)$/ && $ACTION
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+  script:
+    - |
+      case "${ACTION:-scan}" in
+        scan) python3 bot/bot.py scan ;;
+        bump) python3 bot/bot.py bump --branch "$VALUE" --force ;;
+        *)    python3 bot/bot.py "$ACTION" "$VALUE" ;;
+      esac
