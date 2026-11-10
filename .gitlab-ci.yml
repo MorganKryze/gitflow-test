@@ -94,6 +94,12 @@ manual:
     - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_REF_NAME == "dev"
   script:
     - |
+      # Actions manuelles réservées aux responsables de release (variable protégée, logins séparés
+      # par des virgules). Fermé par défaut : sans la variable, personne. Le scan planifié est exempté.
+      if [ "$CI_PIPELINE_SOURCE" != "schedule" ]; then
+        echo ",${RELEASE_MANAGERS}," | grep -qiF ",${GITLAB_USER_LOGIN}," \
+          || { echo "REFUS : action réservée aux responsables de release (${GITLAB_USER_LOGIN} absent de RELEASE_MANAGERS)"; exit 1; }
+      fi
       case "${ACTION:-scan}" in
         scan) python3 bot/bot.py scan ;;
         bump) python3 bot/bot.py bump --branch "$VALUE" --force ;;

@@ -77,7 +77,15 @@ jobs:
       - env:
           ACTION: ${{ inputs.action || 'scan' }}
           VALUE: ${{ inputs.value }}
+          ACTOR: ${{ github.actor }}
+          EVENT: ${{ github.event_name }}
+          RELEASE_MANAGERS: ${{ vars.RELEASE_MANAGERS }}
         run: |
+          # réservé aux responsables de release ; fermé par défaut ; le cron est exempté
+          if [ "$EVENT" != "schedule" ]; then
+            echo ",${RELEASE_MANAGERS}," | grep -qiF ",${ACTOR}," \
+              || { echo "REFUS : action réservée aux responsables de release (${ACTOR} absent de RELEASE_MANAGERS)"; exit 1; }
+          fi
           case "$ACTION" in
             scan) python3 bot/bot.py scan ;;
             bump) python3 bot/bot.py bump --branch "$VALUE" --force ;;
