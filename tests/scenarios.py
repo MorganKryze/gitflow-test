@@ -616,8 +616,23 @@ def W06(sb):
         assert "identique à aucune RC" in str(e), e
 
 
+def W07(sb):
+    """Tags bidons posés à la main (6.6.6, 3.3.0-rc.9) : ignorés, versions et livraisons intactes."""
+    prod_330(sb)
+    sb.git("fetch", "-q", "origin")
+    sb.git("tag", "6.6.6", "origin/dev")
+    sb.git("tag", "3.3.1-rc.9", "origin/dev")
+    sb.git("push", "-q", "origin", "6.6.6", "3.3.1-rc.9")
+    sb.bot("cut", "3.4")
+    assert sb.version("origin/release/3.4") == "3.4.0-rc.1"
+    sb.mr("fix/remise", "dev", FIX_DISCOUNT, "fix: arrondit la remise", ["backport-3.3"])
+    sb.merge_bot_mr("backport/")
+    assert sb.version("origin/release/3.3") == "3.3.1-rc.1"
+    sb.deliver("3.3.1-rc.1")
+
+
 SCENARIOS = [S01, S02, S03, S04, S05, S06, S07, S08, S09, S10, S11, S12, S14, S15, S16, S17, S18, S19,
-             S22, S23, S24, S25, S26, W01, W02, W03, W04, W05, W06]
+             S22, S23, S24, S25, S26, W01, W02, W03, W04, W05, W06, W07]
 
 
 def main():
